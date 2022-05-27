@@ -398,9 +398,11 @@ Inputs:
 - header (OPTIONAL), an octet string containing context and application
                      specific information. If not supplied, it defaults
                      to an empty string.
-- to_sign (OPTIONAL), a list of generator and message pairs. Generators
+- to_sign (OPTIONAL), a list of (generator, message) pairs. Generators
                       must be G1 points, and the messages must be
-                      non-zero scalars mod r.
+                      non-zero scalars mod r. If not supplied, will
+                      default to the empty array ("[]").
+
 
 Parameters:
 
@@ -463,9 +465,8 @@ Inputs:
                      to an empty string.
 - signed (OPTIONAL), a list of generator and message pairs. Generators
                      must be G1 points, and the messages must be
-                     non-zero scalars mod r. The list MUST be the same
-                     and with the same order as the to_sign list
-                     supplied to Sign.
+                     non-zero scalars mod r. If not supplied, will
+                     default to the empty array ("[]").
 
 Parameters:
 
@@ -516,7 +517,7 @@ Procedure:
 
 This operation computes a zero-knowledge proof-of-knowledge of a signature, while optionally selectively disclosing from the original set of signed messages. The "prover" may also supply a presentation header, see [presentation header selection](#presentation-header-selection) for more details.
 
-The generators and messages are supplied as a list of pairs (called `signed`) of the form `(H_i, msg_i)`. The generator `H_i` must be a point on G1 (see [Messages and Generators](#messages-and-generators)) and the message `msg_i` must be a non-zero scalar mod r representing a signed message. The list of pairs MUST be the same and in the same order as the `to_sign` list that was supplied to [Sign](#sign), when creating the signature that will be inputted in this operation. To indicate which messages will be revealed by the resulting proof, the operation takes a sorted list of integers (`revealedIndexes`) as an input, representing the indexes of the (generator, message) pairs containing the messages that will be revealed. Each of those indexes MUST be integers in the range from 1 to L where L the total number of signed messages (see below).
+The generators and messages are supplied as a list of pairs (called `signed`) of the form `(H_i, msg_i)`. The generator `H_i` must be a point on G1 (see [Messages and Generators](#messages-and-generators)) and the message `msg_i` must be a non-zero scalar mod r representing a signed message. The list of pairs MUST be the same and in the same order as the `to_sign` list that was supplied to [Sign](#sign), when creating the signature that will be inputted in this operation. To indicate which messages will be revealed by the resulting proof, the operation takes as an input a list of at most `length(signed)`, integers (`revealedIndexes`) in ascending order, representing the indexes of the (generator, message) pairs containing the messages that will be revealed. Each of those indexes MUST be non-negative integers, in the range from 1 to L, where L the total number of signed messages (i.e., `L = length(signed)`). If one of the `signed` or `revealedIndexes` lists is not supplied, it will default to the empty array ("[]").
 
 For example if `[(H_1, msg_1), (H_2, msg_2), (H_3, msg_3)]` was supplied to [Sign](#sign), and the prover wants to reveal only `msg_1` and `msg_3`, the two lists that must be supplied to ProofGen are the list: `signed = [(H_1, msg_1), (H_2, msg_2), (H_3, msg_3)]` (in that order, otherwise the proof will not validate) and the list: `revealedIndexes = [1, 3]`.
 
@@ -536,8 +537,8 @@ Inputs:
 - signed (OPTIONAL), a list of tuples containing a generator (point on
                      G1), a non-zero scalar mod r representing a message
                      (see above for requirements).
-- revealedIndexes (OPTIONAL), a list of distinct integers in ascending
-                              order, in the range 1 to length(signed)
+- revealedIndexes (OPTIONAL), a list of distinct integers, in the range
+                              1 to length(signed), in ascending order
                               (see above for requirements).
 
 Parameters:
@@ -551,8 +552,8 @@ Parameters:
 Definitions:
 
 - L, is the non-negative integer representing the number of signed
-     messages i.e., L = length(signed). Note if signed is not supplied,
-     as an input the value of L MUST evaluate to zero (0).
+     messages i.e., L = length(signed). Note, if signed is not supplied
+     as an input, the value of L MUST evaluate to zero (0).
 - R, is the non-negative integer representing the number of revealed
      messages i.e., R = length(revealedIndexes). If revealedIndexes is
      not supplied as an input, the value of R MUST evaluate to zero (0).
@@ -565,72 +566,74 @@ Outputs:
 
 Procedure:
 
-1. [i1, ..., iR] = revealedIndexes
+1. if length(revealedIndexes) > L, return INVALID
 
-2. [j1, ..., jU] = [1, ..., L] \ revealedIndexes
+2. [i1, ..., iR] = revealedIndexes
 
-3. (H_i1, msg_i1), ..., (H_iR, msg_iR) = signed[i1], ..., signed[iR]
+3. [j1, ..., jU] = (1, ..., L) \ revealedIndexes
 
-4. (H_j1, msg_j1), ..., (H_jU, msg_jU) = signed[j1], ..., signed[jU]
+4. (H_i1, msg_i1), ..., (H_iR, msg_iR) = signed[i1], ..., signed[iR]
 
-5. signature_result = octets_to_signature(signature)
+5. (H_j1, msg_j1), ..., (H_jU, msg_jU) = signed[j1], ..., signed[jU]
 
-6. if signature_result is INVALID, return INVALID
+6. signature_result = octets_to_signature(signature)
 
-7. (A, e, s) = signature_result
+7. if signature_result is INVALID, return INVALID
 
-8. if KeyValidate(PK) is INVALID, return INVALID
+8. (A, e, s) = signature_result
 
-9. generators =  (H_s || H_d || H_1 || ... || H_L)
+9. if KeyValidate(PK) is INVALID, return INVALID
 
-10. domain = hash_to_scalar((PK || L || generators || Ciphersuite_ID || header), 1)
+10. generators =  (H_s || H_d || H_1 || ... || H_L)
 
-11. (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(8*ceil(log2(r))), 6)
+11. domain = hash_to_scalar((PK || L || generators || Ciphersuite_ID || header), 1)
 
-12. (m~_j1, ..., m~_jU) =  hash_to_scalar(PRF(8*ceil(log2(r))), U)
+12. (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(8*ceil(log2(r))), 6)
 
-13. B = P1 + H_s * s + H_d * domain + H_1 * msg_1 + ... + H_L * msg_L
+13. (m~_j1, ..., m~_jU) =  hash_to_scalar(PRF(8*ceil(log2(r))), U)
 
-14. r3 = r1 ^ -1 mod r
+14. B = P1 + H_s * s + H_d * domain + H_1 * msg_1 + ... + H_L * msg_L
 
-15. A' = A * r1
+15. r3 = r1 ^ -1 mod r
 
-16. Abar = A' * (-e) + B * r1
+16. A' = A * r1
 
-17. D = B * r1 + H_s * r2
+17. Abar = A' * (-e) + B * r1
 
-18. s' = s + r2 * r3
+18. D = B * r1 + H_s * r2
 
-19. C1 = A' * e~ + H_s * r2~
+19. s' = s + r2 * r3
 
-20. C2 = D * (-r3~) + H_s * s~ + H_j1 * m~_j1 + ... + H_jU * m~_jU
+20. C1 = A' * e~ + H_s * r2~
 
-21. c = hash_to_scalar((PK || Abar || A' || D || C1 || C2 || ph), 1)
+21. C2 = D * (-r3~) + H_s * s~ + H_j1 * m~_j1 + ... + H_jU * m~_jU
 
-22. e^ = e~ + c * e
+22. c = hash_to_scalar((PK || Abar || A' || D || C1 || C2 || ph), 1)
 
-23. r2^ = r2~ + c * r2
+23. e^ = e~ + c * e
 
-24. r3^ = r3~ + c * r3
+24. r2^ = r2~ + c * r2
 
-25. s^ = s~ + c * s'
+25. r3^ = r3~ + c * r3
 
-26. for j in (j1, j2,..., jU): m^_j = m~_j + c * msg_j
+26. s^ = s~ + c * s'
 
-27. proof = (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1, ..., m^_jU))
+27. for j in (j1, j2,..., jU): m^_j = m~_j + c * msg_j
 
-28. return proof
+28. proof = (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1, ..., m^_jU))
+
+29. return proof
 ```
 
 ### ProofVerify
 
 This operation checks that a proof is valid for a header, vector of generators, revealed messages, and presentation header against a public key (PK).
 
-The generators are supplied as a list (called `generators`) of points in G1. The generators MUST be the same as the ones supplied to the [Sign](#sign) operation, as part of the (generator, message) pairs of the `to_sign` input list. The generators list MUST also be sorted based on the order that the (generator, message) pairs had in the `to_sign` list. More specifically if the list `to_sign = [(H_1, msg_1), (H_2, msg_2), ..., (H_L, msg_L)]` was supplied as input to Sign, then `generators = [H_1, H_2, ..., H_L]` MUST be supplied as input to ProofVerify, in that order.
+The generators are supplied as a list (called `generators`) of points in G1. The generators MUST be the same as the ones supplied to the [Sign](#sign) operation, as part of the (generator, message) pairs of the `to_sign` input list. The generators list MUST also be sorted based on the order that the (generator, message) pairs had in that list. More specifically, if the list `to_sign = [(H_1, msg_1), (H_2, msg_2), ..., (H_L, msg_L)]` was supplied to the Sign operation as input, then the generators list supplied as input to ProoVerify MUST equal `[H_1, H_2, ..., H_L]`, in that order.
 
-The revealed messages are supplied as a list of pairs of the form (`msg_i`, `index_i`), containing a non-zero scalar mod r, representing a (revealed) message, and an integer in the 1 to L range, representing the index that the (generator, message) pair containing the message `msg_i` had in the `to_sign` list.
+The revealed messages are supplied as a list of at most `length(generators)` pairs, of the form (revealed_message, index), containing a non-zero scalar mod r, representing a (revealed) message, and an integer in the 1 to L range, representing the index that the (generator, message) pair containing the revealed_message had in the `to_sign` list. The list MUST be sorted based on the (ascending) order of the indexes. If the list is not supplied, it will default to the empty array ("[]").
 
-For example if the list `to_sign = [(H_1, msg_1), (H_2, msg_2), (H_3, msg_3)]` was supplied to [Sign](#sign), and the proof only reveals the first and the third message (i.e., the list `revealedIndexes = [1, 3]` was supplied to [ProofGen](#proofgen)), the lists that must be supplied to ProofVerify are `generators = [H_1, H_2, H_3]` (in that order otherwise the proof will not be validated) and `revealedMsgs = [(msg_1, 1), (msg_3, 3)]`.
+For example, if the list `to_sign = [(H_1, msg_1), (H_2, msg_2), (H_3, msg_3)]` was supplied to the Sign operation, and the proof only reveals the first and the third message (i.e., the list `revealedIndexes = [1, 3]` was supplied to [ProofGen](#proofgen)), the lists that must be supplied to ProofVerify are `generators = [H_1, H_2, H_3]` (in that order, otherwise the proof will not be validated) and `revealedMsgs = [(msg_1, 1), (msg_3, 3)]`.
 
 ```
 result = ProofVerify(PK, proof, header, ph, generators, revealedMsgs)
@@ -648,10 +651,11 @@ Inputs:
 - generators (OPTIONAL), a list of generators (points in G1). (see above
                          for requirements).
 - revealedMsgs (OPTIONAL), a list of pairs containing a non-zero scalar
-                     mod r representing a (revealed) message and an
+                     mod r representing a revealed message and an
                      integer representing the index of that message to
                      the original signed list. Each index MUST be in the
-                     1 to length(generators) range (see above).
+                     1 to length(generators) range (see above for
+                     requirements).
 
 Parameters:
 
@@ -678,37 +682,39 @@ Outputs:
 
 Procedure:
 
-1. (msg_i1, i1), ..., (msg_iR, iR) = revealedMsgs
+1. if length(revealedMsgs) > L, return INVALID
 
-2. [j1, ..., jU] = (1, ..., L) \ (i1, ..., iR)
+2. (msg_i1, i1), ..., (msg_iR, iR) = revealedMsgs
 
-3. H_i1, ..., H_iR = generators[i1], ..., generators[iR]
+3. [j1, ..., jU] = (1, ..., L) \ [i1, ..., iR]
 
-4. H_j1, ..., H_jU = generators[j1], ..., generators[jU]
+4. H_i1, ..., H_iR = generators[i1], ..., generators[iR]
 
-5. if KeyValidate(PK) is INVALID, return INVALID
+5. H_j1, ..., H_jU = generators[j1], ..., generators[jU]
 
-6. (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1,...,m^_jU)) = proof
+6. if KeyValidate(PK) is INVALID, return INVALID
 
-7. generators =  (H_s || H_d || H_1 || ... || H_L)
+7. (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1,...,m^_jU)) = proof
 
-8. domain = hash_to_scalar((PK || L || generators || Ciphersuite_ID || header), 1)
+8. generators =  (H_s || H_d || H_1 || ... || H_L)
 
-9. C1 = (Abar - D) * c + A' * e^ + H_s * r2^
+9. domain = hash_to_scalar((PK || L || generators || Ciphersuite_ID || header), 1)
 
-10. T = P1 + H_s * domain + H_i1 * msg_i1 + ... H_iR * msg_iR
+10. C1 = (Abar - D) * c + A' * e^ + H_s * r2^
 
-11. C2 = T * c + D * (-r3^) + H_s * s^ + H_j1 * m^_j1 + ... + H_jU * m^_jU
+11. T = P1 + H_s * domain + H_i1 * msg_i1 + ... H_iR * msg_iR
 
-12. cv = hash_to_scalar((PK || Abar || A' || D || C1 || C2 || ph), 1)
+12. C2 = T * c + D * (-r3^) + H_s * s^ + H_j1 * m^_j1 + ... + H_jU * m^_jU
 
-13. if c != cv, return INVALID
+13. cv = hash_to_scalar((PK || Abar || A' || D || C1 || C2 || ph), 1)
 
-14. if A' == 1, return INVALID
+14. if c != cv, return INVALID
 
-15. if e(A', W) * e(Abar, -P2) != 1, return INVALID
+15. if A' == 1, return INVALID
 
-16. return VALID
+16. if e(A', W) * e(Abar, -P2) != 1, return INVALID
+
+17. return VALID
 ```
 
 ### CreateGenerators
